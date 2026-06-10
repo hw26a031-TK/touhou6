@@ -143,7 +143,7 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
 
     // Initialize background nebulas/starfield particles
     const bgs = [];
-    for (let i = 0; i < 40; i++) {
+    for (let i = 0; i < 22; i++) {
       bgs.push({
         x: Math.random() * GAME_WIDTH,
         y: Math.random() * GAME_HEIGHT,
@@ -588,13 +588,15 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
       if (!b.isEnemy && b.type === 'ring') {
         // Homing logic: find closest active enemy on screen
         let closestEnemy: Enemy | null = null;
-        let minDist = 999999;
+        let minDistSq = 999999;
         
         enemiesRef.current.forEach((e) => {
           if (e.y > -30 && e.y < GAME_HEIGHT) {
-            const dist = Math.hypot(e.x - b.x, e.y - b.y);
-            if (dist < minDist) {
-              minDist = dist;
+            const dx = e.x - b.x;
+            const dy = e.y - b.y;
+            const distSq = dx * dx + dy * dy;
+            if (distSq < minDistSq) {
+              minDistSq = distSq;
               closestEnemy = e;
             }
           }
@@ -931,17 +933,18 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
     const bullets = bulletsRef.current;
     const enemies = enemiesRef.current;
 
-    // A. Player projectiles hitting Enemies
+    // A. Player projectiles hitting Enemies (No Math.sqrt!)
     bullets.forEach((bullet) => {
       if (bullet.isEnemy) return; // skip if enemy bullet
 
       enemies.forEach((enemy) => {
         const dx = bullet.x - enemy.x;
         const dy = bullet.y - enemy.y;
-        const dist = Math.sqrt(dx * dx + dy * dy);
+        const distSq = dx * dx + dy * dy;
+        const radiusSum = bullet.radius + Math.max(enemy.width, enemy.height) / 2;
 
-        // hit check
-        if (dist < (bullet.radius + Math.max(enemy.width, enemy.height) / 2)) {
+        // hit check utilizing distance squared
+        if (distSq < radiusSum * radiusSum) {
           // Deal damage
           enemy.health -= bullet.damage || 10;
           bullet.y = -999; // mark to delete
@@ -964,17 +967,21 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
       });
     });
 
-    // B. Enemy bullet hitting Player or Graze system!
+    // B. Enemy bullet hitting Player or Graze system! (No Math.sqrt unless absolutely grazing)
     bullets.forEach((bullet) => {
       if (!bullet.isEnemy) return;
 
       const dx = bullet.x - player.x;
       const dy = bullet.y - player.y;
-      const dist = Math.sqrt(dx * dx + dy * dy);
+      const distSq = dx * dx + dy * dy;
 
-      // Grave (Bullet bypasses physical borders very closely!)
+      // Graze (Bullet bypasses physical borders very closely!)
       const grazeThreshold = bullet.radius + 18; 
-      if (dist < grazeThreshold && dist >= (bullet.radius + player.hitboxRadius)) {
+      const grazeThresholdSq = grazeThreshold * grazeThreshold;
+      const hitboxThreshold = bullet.radius + player.hitboxRadius;
+      const hitboxThresholdSq = hitboxThreshold * hitboxThreshold;
+
+      if (distSq < grazeThresholdSq && distSq >= hitboxThresholdSq) {
         if (!bullet.grazed) {
           bullet.grazed = true;
           player.graze++;
@@ -1002,8 +1009,7 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
       }
 
       // Physical absolute hitbox hit!
-      const hitboxThreshold = bullet.radius + player.hitboxRadius;
-      if (dist < hitboxThreshold) {
+      if (distSq < hitboxThresholdSq) {
         if (player.invulnFrames <= 0) {
           // Play HIT!
           audio.playPlayerHit();
@@ -1042,9 +1048,10 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
     enemies.forEach((enemy) => {
       const dx = enemy.x - player.x;
       const dy = enemy.y - player.y;
-      const dist = Math.sqrt(dx * dx + dy * dy);
+      const distSq = dx * dx + dy * dy;
+      const radiusSum = player.radius + Math.max(enemy.width, enemy.height) / 2;
 
-      if (dist < (player.radius + Math.max(enemy.width, enemy.height) / 2)) {
+      if (distSq < radiusSum * radiusSum) {
         if (player.invulnFrames <= 0) {
           player.lives--;
           player.invulnFrames = 100;
@@ -1071,17 +1078,21 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
       // Vacuum items to player center when close
       const dx = player.x - item.x;
       const dy = player.y - item.y;
-      const dist = Math.sqrt(dx * dx + dy * dy);
+      const distSq = dx * dx + dy * dy;
 
-      if (dist < 120) {
-        // accelerate pulls
-        const force = (120 - dist) / 10;
-        item.x += (dx / dist) * force;
-        item.y += (dy / dist) * force;
+      if (distSq < 14400) { // 120 * 120
+        const dist = Math.sqrt(distSq);
+        if (dist > 0.01) {
+          // accelerate pulls
+          const force = (120 - dist) / 10;
+          item.x += (dx / dist) * force;
+          item.y += (dy / dist) * force;
+        }
       }
 
       // Collection checking
-      if (dist < (player.radius + 15)) {
+      const collectionRadius = player.radius + 15;
+      if (distSq < collectionRadius * collectionRadius) {
         item.y = 9999; // mark delete
         audio.playGraze();
 
@@ -1135,18 +1146,16 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
     ctx.fillStyle = '#080108'; // very deep dark gothic purple
     ctx.fillRect(0, 0, GAME_WIDTH, GAME_HEIGHT);
 
-    // Draw scrolling foggy mist backdrop
-    ctx.fillStyle = 'rgba(128, 0, 32, 0.1)'; 
+    // Draw scrolling background elements in a single combined loop
     bgParticlesRef.current.forEach((bg) => {
+      // 1. Soft glowing background mist nodes
       ctx.beginPath();
-      ctx.fillStyle = `rgba(220, 38, 38, ${bg.alpha})`;
+      ctx.fillStyle = `rgba(220, 38, 38, ${bg.alpha * 0.7})`;
       ctx.arc(bg.x, bg.y, bg.size * 3, 0, Math.PI * 2);
       ctx.fill();
-    });
 
-    // Draw little white star dust
-    ctx.fillStyle = '#ffffff';
-    bgParticlesRef.current.forEach((bg) => {
+      // 2. Crisp tiny white stars
+      ctx.fillStyle = '#ffffff';
       ctx.fillRect(bg.x, bg.y, bg.size, bg.size);
     });
 
@@ -1282,10 +1291,6 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
     bulletsRef.current.forEach((bullet) => {
       ctx.save();
       if (bullet.isEnemy) {
-        // Gorgeous outer glows for enemy bullet hell rings
-        ctx.shadowBlur = 6;
-        ctx.shadowColor = bullet.color;
-
         ctx.fillStyle = bullet.color;
         
         ctx.beginPath();
