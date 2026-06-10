@@ -1,0 +1,6 @@
+{
+  "name": "東方紅魔郷 for Switch",
+  "description": "Nintendo Switchの画面をシミュレートした、弾幕密度を細かく調整できる東方紅魔郷風2D弾幕シューティングゲームです。キーボードや画面上のバーチャルコントローラーで操作可能です。",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
